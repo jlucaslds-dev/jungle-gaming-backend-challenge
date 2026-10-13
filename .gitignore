@@ -5,10 +5,20 @@
 
 # Go build and test artifacts
 *.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 *.test
 *.out
+coverage.*
+!coverage.go
+*.coverprofile
+profile.cov
 /bin/
 /dist/
+go.work
+go.work.sum
 
 # Operating system files
 .DS_Store
