@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS outbox_events;
+DROP TABLE IF EXISTS consumer_inbox;
+DROP TRIGGER IF EXISTS ledger_entries_immutable ON ledger_entries;
+DROP TRIGGER IF EXISTS ledger_entries_no_truncate ON ledger_entries;
+DROP TRIGGER IF EXISTS ledger_entries_validate ON ledger_entries;
+DROP FUNCTION IF EXISTS prevent_ledger_mutation();
+DROP FUNCTION IF EXISTS validate_ledger_entry();
+DROP TABLE IF EXISTS ledger_entries;
+DROP TABLE IF EXISTS wager_transactions;
+DROP TABLE IF EXISTS wallets;

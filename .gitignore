@@ -1,0 +1,15 @@
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Go build and test artifacts
+*.exe
+*.test
+*.out
+/bin/
+/dist/
+
+# Operating system files
+.DS_Store
+Thumbs.db
