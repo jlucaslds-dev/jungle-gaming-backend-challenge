@@ -153,7 +153,7 @@ Para provar coordenação com **três processos API independentes**, Keycloak e 
 powershell -ExecutionPolicy Bypass -File .\scripts\verify-three-processes.ps1
 ```
 
-O script cria um banco temporário, aplica as migrations, inicia três containers API em portas `18082` a `18084`, verifica chamadas sem permissão, disputa três apostas de `80.00` simultaneamente — uma por processo —, faz replay numa instância diferente, confere saldo/ledger e testa encerramento gracioso. Ao terminar, remove os containers e o banco temporários; os serviços base do Compose permanecem ativos. Use `-BasePort` para escolher outra porta inicial.
+O script cria um banco temporário, aplica as migrations, inicia três containers API em portas `18082` a `18084`, verifica chamadas sem permissão, disputa três apostas de `80.00` simultaneamente — uma por processo —, faz replay numa instância diferente, confere saldo/ledger e testa encerramento gracioso. Também processa uma aposta por HTTP e reenvia a mesma operação pelo SQS; consulta o PostgreSQL para confirmar saldo `75.00`, uma transação, um débito no ledger e uma mensagem concluída na inbox. Ao terminar, remove os containers e o banco temporários; os serviços base do Compose permanecem ativos. Use `-BasePort` para escolher outra porta inicial.
 
 Para validar isolamento entre provedores com PostgreSQL e Keycloak reais, incluindo o mesmo ID externo e chave idempotente nos dois provedores, consultas cruzadas e tentativa de falsificar o `providerId`:
 

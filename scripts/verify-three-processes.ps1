@@ -26,6 +26,7 @@ function Wait-APIReady {
             }
         } catch {
         }
+        Start-Sleep -Seconds 2
     }
     throw "API did not become ready: $Uri"
 }
@@ -208,6 +209,76 @@ try {
         throw "cross-process replay did not return the original transaction"
     }
 
+    $crossPlayerID = "http-sqs-$runID"
+    $crossWalletBody = @{
+        playerId = $crossPlayerID
+        initialBalance = @{ amount = "100.00"; currency = "BRL" }
+    } | ConvertTo-Json -Depth 4 -Compress
+    $crossWallet = Invoke-RestMethod -Method Post -Uri "http://localhost:$BasePort/wallets" `
+        -Headers @{ Authorization = "Bearer $internalToken" } -ContentType application/json -Body $crossWalletBody
+    $crossExternalID = "http-sqs-external-$runID"
+    $crossIdempotencyKey = "http-sqs-key-$runID"
+    $crossBody = @{
+        providerId = "provider-a"; externalTransactionId = $crossExternalID
+        playerId = $crossPlayerID; walletId = $crossWallet.id
+        roundId = "http-sqs-round-$runID"; gameId = "acceptance"
+        kind = "BET"; money = @{ amount = "25.00"; currency = "BRL" }
+    } | ConvertTo-Json -Depth 5 -Compress
+    $crossHttpResult = Invoke-RestMethod -Method Post -Uri "http://localhost:$($ports[0])/wagering/transactions" `
+        -Headers @{ Authorization = "Bearer $providerToken"; "Idempotency-Key" = $crossIdempotencyKey } `
+        -ContentType application/json -Body $crossBody
+    if ($crossHttpResult.status -ne "PROCESSED" -or $crossHttpResult.idempotentReplay) {
+        throw "HTTP did not create the expected original wagering transaction"
+    }
+
+    $crossMessageID = "http-sqs-message-$runID"
+    $crossEnvelope = @{
+        messageId = $crossMessageID
+        type = "WagerTransactionRequested"
+        data = @{
+            providerId = "provider-a"; externalTransactionId = $crossExternalID
+            idempotencyKey = $crossIdempotencyKey; playerId = $crossPlayerID
+            walletId = $crossWallet.id; roundId = "http-sqs-round-$runID"
+            gameId = "acceptance"; kind = "BET"
+            money = @{ amount = "25.00"; currency = "BRL" }
+        }
+    } | ConvertTo-Json -Depth 6 -Compress
+    $crossEnvelopeBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($crossEnvelope))
+    $localstackContainer = (docker compose ps -q localstack).Trim()
+    if (-not $localstackContainer) {
+        throw "could not find the LocalStack container to publish the cross-path message"
+    }
+    docker exec $localstackContainer sh -c `
+        'body=$(printf "%s" "$1" | base64 -d) && awslocal sqs send-message --queue-url http://localhost:4566/000000000000/wager-transactions.fifo --message-body "$body" --message-group-id "$2" --message-deduplication-id "$3" >/dev/null' `
+        sh $crossEnvelopeBase64 $crossWallet.id $crossMessageID
+    if ($LASTEXITCODE -ne 0) {
+        throw "could not publish the HTTP-replayed wager to SQS"
+    }
+
+    $crossCheck = ""
+    $crossQuery = @"
+SELECT w.balance::text || '|' ||
+    (SELECT count(*) FROM wager_transactions WHERE provider_id = 'provider-a' AND external_id = '$crossExternalID')::text || '|' ||
+    (SELECT count(*) FROM ledger_entries entry JOIN wager_transactions wager ON wager.id = entry.transaction_id
+        WHERE wager.provider_id = 'provider-a' AND wager.external_id = '$crossExternalID' AND entry.amount < 0)::text || '|' ||
+    (SELECT count(*) FROM consumer_inbox
+        WHERE consumer_name = 'wager-transactions' AND message_id = '$crossMessageID' AND completed_at IS NOT NULL)::text
+FROM wallets w WHERE w.id = '$($crossWallet.id)';
+"@
+    for ($attempt = 0; $attempt -lt 30; $attempt++) {
+        $crossCheck = (docker exec $postgresContainer psql -U $postgresUser -d $databaseName -Atc $crossQuery).Trim()
+        if ($LASTEXITCODE -ne 0) {
+            throw "could not query cross-path PostgreSQL evidence"
+        }
+        if ($crossCheck -eq "7500|1|1|1") {
+            break
+        }
+        Start-Sleep -Seconds 1
+    }
+    if ($crossCheck -ne "7500|1|1|1") {
+        throw "HTTP-to-SQS replay evidence was '$crossCheck', expected balance/transactions/debits/completed inbox 7500|1|1|1"
+    }
+
     $finalWallet = Invoke-RestMethod -Uri "http://localhost:$BasePort/wallets/$($wallet.id)" `
         -Headers @{ Authorization = "Bearer $internalToken" }
     $ledger = Invoke-RestMethod -Uri "http://localhost:$BasePort/wallets/$($wallet.id)/ledger?limit=20" `
@@ -229,6 +300,8 @@ try {
     Write-Output "THREE_PROCESS_CONCURRENCY=PASS"
     Write-Output "ALL_THREE_PROCESSES_PARTICIPATED=PASS"
     Write-Output "CROSS_PROCESS_REPLAY=PASS"
+    Write-Output "CROSS_HTTP_SQS_IDEMPOTENCY=PASS"
+    Write-Output "HTTP_SQS_BALANCE=75.00 TRANSACTIONS=1 LEDGER_DEBITS=1 COMPLETED_INBOX=1"
     Write-Output "AUTHORIZATION_NEGATIVES=PASS"
     Write-Output "BALANCE=$($finalWallet.balance.amount) LEDGER_DEBITS=$($debits.Count)"
     Write-Output "GRACEFUL_SHUTDOWN=PASS"
