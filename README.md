@@ -23,7 +23,7 @@ docker compose up --build
 
 O arquivo `.env.example` acompanha o projeto e contém somente valores demonstrativos para desenvolvimento local. Copie-o para `.env` antes de subir o Compose. O `.env` local é excluído do contexto Docker; não o versione nem inclua credenciais reais no projeto. A configuração e os clients importados são exclusivamente para desenvolvimento local. Substitua todos os segredos e configure credenciais/políticas apropriadas antes de qualquer uso fora da máquina local.
 
-O provisionamento SQS define `MessageGroupId` como o agregado (ID da carteira para mudanças de carteira) e `MessageDeduplicationId` como o `eventId`. A fila de entrada manda mensagens para a DLQ após cinco recebimentos sem confirmação.
+Na inicialização, o LocalStack executa `deploy/localstack/10-create-queues.sh` pelo hook `ready.d`, criando as filas FIFO de entrada, saída e DLQ e configurando redrive após cinco recebimentos sem confirmação. O Keycloak importa automaticamente `deploy/keycloak/jungle-realm.json`, que cria o realm `jungle` e os clients locais `provider-a`, `provider-b` e `internal-service`. O provisionamento SQS define `MessageGroupId` como o agregado (ID da carteira para mudanças de carteira) e `MessageDeduplicationId` como o `eventId`.
 
 ### Tokens de teste
 
@@ -175,6 +175,15 @@ Os testes de integração do worker injetam falha nos limites commit/ACK e `Send
 
 ## Configuração
 
-Use `.env.example` como referência para portas, credenciais demonstrativas locais e região AWS. O Compose define `DATABASE_URL`, `WAGER_QUEUE_URL`, `OUTBOX_QUEUE_URL`, `OIDC_ISSUER_URL`, `OIDC_AUDIENCE` e `INTERNAL_CLIENT_IDS` para o ambiente local; fora dele, configure essas variáveis explicitamente. O processo falha na inicialização se OIDC ou os recursos obrigatórios não estiverem configurados.
+`.env.example` contém valores de desenvolvimento usados para interpolar a configuração Compose:
+
+| Variável | Uso |
+| --- | --- |
+| `APP_PORT` | Porta HTTP publicada no host (padrão `8080`). |
+| `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | Porta e credenciais locais do PostgreSQL (padrões `5432`, `jungle_gaming`, `postgres`, `postgres`). |
+| `KEYCLOAK_PORT`, `KEYCLOAK_ADMIN`, `KEYCLOAK_ADMIN_PASSWORD` | Porta publicada e credenciais administrativas locais do Keycloak (padrões `8081`, `admin`, `admin`). |
+| `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Região e credenciais demonstrativas usadas pelo LocalStack (padrões `us-east-1`, `test`, `test`). |
+
+Dentro do Compose, `app` recebe `PORT`, `DATABASE_URL`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL`, `WAGER_QUEUE_URL`, `OUTBOX_QUEUE_URL`, `OIDC_ISSUER_URL`, `OIDC_AUDIENCE` e `INTERNAL_CLIENT_IDS`; os endpoints, URLs de filas, issuer, audience e clients internos têm valores locais definidos no `docker-compose.yml`. Fora do Compose, configure essas variáveis no ambiente do processo. Os testes de integração usam `TEST_DATABASE_URL` e, para recuperação com SQS real, `TEST_SQS_ENDPOINT_URL`. A aplicação falha na inicialização se OIDC ou os recursos obrigatórios não estiverem configurados.
 
 Para enviar uma mensagem de teste, publique um envelope `WagerTransactionRequested` na fila FIFO de entrada, incluindo um `messageId` estável, `idempotencyKey` e o mesmo corpo de negócio aceito pela API. O consumidor só remove a mensagem depois do commit do caso de uso; falhas transitórias recebem nova visibilidade com backoff e, após o limite configurado, são redirecionadas à DLQ.

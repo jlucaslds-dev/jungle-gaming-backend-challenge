@@ -59,3 +59,10 @@ Eventos definidos: `WagerTransactionProcessed`, `WagerTransactionRejected`, `Wag
 Logs emitidos pela aplicação usam JSON e evitam registrar tokens e payloads financeiros. Métricas Prometheus incluem resultados por status, replay/conflito, retries/DLQ, erros e atraso de outbox, latência agregada e divergência de reconciliação. Liveness é independente; readiness confirma conexão com PostgreSQL e as duas filas SQS.
 
 Testes unitários cobrem parsing/aritmética de `Money`, moeda, overflow, invariantes da carteira e transições. Os testes PostgreSQL reais são habilitados por `TEST_DATABASE_URL`: aplicam migrations em schemas isolados, verificam ciclo up/down repetido, unicidade de abertura, concorrência, replay 50x em pools independentes, `FAILED`, imutabilidade do ledger, inbox e regras de referência/reversão. Dois publishers com pools distintos disputam 20 eventos; leases abandonados e retries preservam `eventId`. `scripts/verify-three-processes.ps1` sobe três containers API com conexões próprias e exercita OIDC, disputa HTTP, replay entre processos, saldo/ledger e shutdown. Os testes de recuperação com PostgreSQL e LocalStack reais injetam falha após o commit financeiro e antes do ACK SQS e entre o envio do evento e a confirmação da outbox; validam redelivery sem débito duplicado, redrive à DLQ, retomada por outro publisher e preservação do `eventId`. ACLs de um broker de produção não são verificadas pelo ambiente local e devem ser configuradas e validadas na implantação.
+
+## Limitações e trabalho não concluído
+
+- O Compose usa Keycloak em modo de desenvolvimento, secrets fixos de exemplo, LocalStack e credenciais AWS de teste; isso não é configuração apropriada para produção.
+- Integração com um IdP e um broker de produção, incluindo gestão de secrets, TLS, permissões/ACLs e alarmes operacionais, precisa ser configurada e validada no ambiente de implantação. Os testes locais não validam essas políticas de produção.
+- O contrato monetário usa escala fixa de duas casas e, portanto, não atende moedas cuja escala legal seja diferente.
+- Tracing distribuído e dashboards não estão implementados; são diferenciais opcionais do desafio.
